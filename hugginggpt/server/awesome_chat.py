@@ -13,6 +13,7 @@ import json
 import logging
 import argparse
 import yaml
+from urllib.parse import quote, urlsplit
 from PIL import Image, ImageDraw
 from diffusers.utils import load_image
 from pydub import AudioSegment
@@ -95,11 +96,33 @@ if args.mode in ["test", "cli"]:
 
 API_KEY = None
 API_ENDPOINT = None
+AZURE_DEPLOYMENT_NAME = None
 if API_TYPE == "local":
     API_ENDPOINT = f"{config['local']['endpoint']}/v1/{api_name}"
 elif API_TYPE == "azure":
-    API_ENDPOINT = f"{config['azure']['base_url']}/openai/deployments/{config['azure']['deployment_name']}/{api_name}?api-version={config['azure']['api_version']}"
-    API_KEY = config["azure"]["api_key"]
+    azure_config = config["azure"]
+    API_KEY = os.getenv("AZURE_OPENAI_API_KEY") or azure_config.get("api_key")
+    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or azure_config.get("endpoint") or azure_config.get("base_url")
+    AZURE_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT") or azure_config.get("deployment_name")
+    azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION") or azure_config.get("api_version", "2024-10-21")
+
+    if not API_KEY or API_KEY.startswith("REPLACE_WITH_"):
+        raise ValueError("Azure OpenAI API key is missing. Set AZURE_OPENAI_API_KEY or azure.api_key in the config.")
+    if not azure_endpoint:
+        raise ValueError("Azure OpenAI endpoint is missing. Set AZURE_OPENAI_ENDPOINT or azure.endpoint in the config.")
+    endpoint_parts = urlsplit(azure_endpoint)
+    if endpoint_parts.scheme not in ("http", "https") or not endpoint_parts.netloc:
+        raise ValueError("Azure OpenAI endpoint must be an absolute http(s) resource URL.")
+    if not AZURE_DEPLOYMENT_NAME or AZURE_DEPLOYMENT_NAME.startswith("REPLACE_WITH_"):
+        raise ValueError("Azure OpenAI deployment is missing. Set AZURE_OPENAI_DEPLOYMENT or azure.deployment_name in the config.")
+    if not azure_api_version:
+        raise ValueError("Azure OpenAI API version is missing. Set AZURE_OPENAI_API_VERSION or azure.api_version in the config.")
+
+    azure_endpoint = azure_endpoint.rstrip("/")
+    API_ENDPOINT = (
+        f"{azure_endpoint}/openai/deployments/{quote(AZURE_DEPLOYMENT_NAME, safe='')}/"
+        f"{api_name}?api-version={quote(azure_api_version, safe='')}"
+    )
 elif API_TYPE == "openai":
     API_ENDPOINT = f"https://api.openai.com/v1/{api_name}"
     if config["openai"]["api_key"].startswith("sk-"):  # Check for valid OpenAI key in config file
@@ -197,6 +220,8 @@ def send_request(data):
             "Authorization": f"Bearer {api_key}"
         }
     elif api_type == "azure":
+        if AZURE_DEPLOYMENT_NAME:
+            data["model"] = AZURE_DEPLOYMENT_NAME
         HEADER = {
             "api-key": api_key,
             "Content-Type": "application/json"
