@@ -176,17 +176,12 @@ METADATAS = {}
 for model in MODELS:
     METADATAS[model["id"]] = model
 
-HUGGINGFACE_HEADERS = {}
-if config["huggingface"]["token"] and config["huggingface"]["token"].startswith("hf_"):  # Check for valid huggingface token in config file
-    HUGGINGFACE_HEADERS = {
-        "Authorization": f"Bearer {config['huggingface']['token']}",
-    }
-elif "HUGGINGFACE_ACCESS_TOKEN" in os.environ and os.getenv("HUGGINGFACE_ACCESS_TOKEN").startswith("hf_"):  # Check for environment variable HUGGINGFACE_ACCESS_TOKEN
-    HUGGINGFACE_HEADERS = {
-        "Authorization": f"Bearer {os.getenv('HUGGINGFACE_ACCESS_TOKEN')}",
-    }
-else:
+HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_ACCESS_TOKEN") or config["huggingface"]["token"]
+if not HUGGINGFACE_TOKEN or not HUGGINGFACE_TOKEN.startswith("hf_"):
     raise ValueError(f"Incorrect HuggingFace token. Please check your {args.config} file.")
+HUGGINGFACE_HEADERS = {
+    "Authorization": f"Bearer {HUGGINGFACE_TOKEN}",
+}
 
 def convert_chat_to_completion(data):
     messages = data.pop('messages', [])
@@ -424,7 +419,7 @@ def response_results(input, results, api_key, api_type, api_endpoint):
 
 def huggingface_model_inference(model_id, data, task):
     task_url = f"https://api-inference.huggingface.co/models/{model_id}" # InferenceApi does not yet support some tasks
-    inference = InferenceApi(repo_id=model_id, token=config["huggingface"]["token"])
+    inference = InferenceApi(repo_id=model_id, token=HUGGINGFACE_TOKEN)
     
     # NLP tasks
     if task == "question-answering":
